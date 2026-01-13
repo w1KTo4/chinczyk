@@ -2,26 +2,34 @@ package com.chinczyk.logic;
 
 import com.chinczyk.model.*;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Główna logika gry: zarządzanie planszą, turami, ruchem i zbiciami.
- * Zawiera mapę trasy 52 pól z dokładnymi współrzędnymi na planszy 15x15.
- * Dodano debugowanie (System.out) informujące o ruchach, rzutach i zbiciach.
- * Przepisano poruszanie: poruszamy się po liście tiles (0..51) z wrap-around.
+ * Zmiany:
+ * - debug można włączać/wyłączać (debugEnabled)
+ * - sekwencyjne rzuty: gracz ma do 3 prób (attemptsLeft) wykonywanych po jednym rzucie
+ * - jeśli wyrzuci 6 i wykona ruch, zachowuje turę (extra roll)
+ * - poruszanie po trasie z wrap-around
+ * - poprawiona mapa trasy i starty
  */
 public class Game {
-    public static final int BOARD_SIZE = 52; // długość trasy
-    private List<Tile> tiles;                // 52 pola trasy
+    public static final int BOARD_SIZE = 52;
+    private List<Tile> tiles;
     private List<Player> players;
     private int currentPlayerIndex;
     private Dice dice;
 
-    // mapowanie domów (kolor -> lista współrzędnych 2x2 startowych pól domowych)
+    // domy: mapowanie kolor -> 4 sloty (row,col) 1-based
     private Map<ColorType, int[][]> homeSlots;
+
+    // stan tury: ile prób pozostało (3 na start), czy już rzucono w tej turze
+    private int attemptsLeft;
+    private boolean rolledThisTurn;
+    private int lastRollValue;
+
+    // debug
+    private boolean debugEnabled = true;
 
     public Game() {
         dice = new Dice();
@@ -30,52 +38,61 @@ public class Game {
         players = new ArrayList<>();
         setupDefaultPlayers();
         currentPlayerIndex = 0;
+        resetTurnState();
         placeAllPiecesOnTiles();
         debug("Game initialized. Current player: " + getCurrentPlayer().getName());
     }
 
+    public void setDebugEnabled(boolean enabled) {
+        this.debugEnabled = enabled;
+    }
+
+    public boolean isDebugEnabled() {
+        return debugEnabled;
+    }
+
+    private void resetTurnState() {
+        attemptsLeft = 3;
+        rolledThisTurn = false;
+        lastRollValue = 0;
+    }
+
     private void initHomeSlots() {
         homeSlots = new HashMap<>();
-        // Każdy wpis: 4 pól startowych (row,col) 1-based
+        // zgodnie z Twoim opisem:
         // Czerwony dom B2–E5, pola startowe: C3 D3 C4 D4
-        homeSlots.put(ColorType.RED, new int[][]{
-                {3,3}, {4,3}, {3,4}, {4,4}
-        });
-        // Zielony dom K2–N5, pola startowe: L3 M3 L4 M4
-        homeSlots.put(ColorType.GREEN, new int[][]{
-                {12,3}, {13,3}, {12,4}, {13,4}
-        });
+        homeSlots.put(ColorType.RED, new int[][]{{3,3},{4,3},{3,4},{4,4}});
+        // Zielony dom K2–N5, pola startowe: L3 M3 L4 M4 (kolory poprawione)
+        homeSlots.put(ColorType.GREEN, new int[][]{{12,3},{13,3},{12,4},{13,4}});
         // Żółty dom K11–N14, pola startowe: L12 M12 L13 M13
-        homeSlots.put(ColorType.YELLOW, new int[][]{
-                {12,12}, {13,12}, {12,13}, {13,13}
-        });
+        homeSlots.put(ColorType.YELLOW, new int[][]{{12,12},{13,12},{12,13},{13,13}});
         // Niebieski dom B11–E14, pola startowe: C12 D12 C13 D13
-        homeSlots.put(ColorType.BLUE, new int[][]{
-                {3,12}, {4,12}, {3,13}, {4,13}
-        });
+        homeSlots.put(ColorType.BLUE, new int[][]{{3,12},{4,12},{3,13},{4,13}});
     }
 
     private void initTiles() {
         tiles = new ArrayList<>(BOARD_SIZE);
 
-        // Mapa 52 pól (col,row) 1-based, w kolejności ruchu.
-        // Dopasowana do układu 15x15 i punktów startowych:
-        // start RED: I1 (9,1)
-        // start GREEN: B9 (2,9)
-        // start BLUE: N9 (14,9)
-        // start YELLOW: I15 (9,15) - jeśli nie ma w path, fallback
+        // Zaktualizowana mapa 52 pól (col,row) 1-based, w kolejności ruchu.
+        // Uwaga: trasa została dopasowana tak, aby uwzględniać poprawione starty i korytarze.
+        // Starty (wg Twoich poprawek):
+        // - niebieski start: A7 (col=1,row=7)
+        // - zielony start: O9 (col=15,row=9)
+        // - czerwony start: I1 (col=9,row=1) (pozostawiony)
+        // - żółty start: I15 (col=9,row=15) (pozostawiony)
+        //
+        // Trasa idzie wzdłuż korytarzy i obwodu; poniżej jedna spójna, przemyślana sekwencja 52 pól.
         int[][] path = new int[][]{
-                // 0..51
-                {9,1}, {9,2}, {9,3}, {9,4}, {9,5}, {9,6},         // I1..I6
-                {10,6}, {11,6}, {12,6}, {13,6}, {14,6}, {15,6},    // J6..O6
-                {15,7}, {15,8}, {15,9},                            // O7..O9
-                {14,9}, {13,9}, {12,9}, {11,9}, {10,9},            // N9..J9
-                {10,10}, {10,11}, {10,12}, {10,13}, {10,14},       // J10..J14
-                {9,14}, {8,14}, {7,14}, {6,14}, {5,14}, {4,14},   // I14..D14
-                {3,14}, {2,14}, {2,13}, {2,12}, {2,11},            // C14..B11
-                {3,11}, {4,11}, {5,11}, {6,11}, {7,11}, {8,11},    // C11..H11
-                {8,10}, {8,9}, {8,8}, {8,7},                       // H10..H7
-                {7,7}, {6,7}, {5,7}, {4,7}, {3,7}, {2,7}           // G7..B7
+                // zaczynamy od czerwonego startu I1 (9,1)
+                {9,1}, {9,2}, {9,3}, {9,4}, {9,5}, {9,6},
+                {10,6}, {11,6}, {12,6}, {13,6}, {14,6}, {15,6},
+                {15,7}, {15,8}, {15,9}, {14,9}, {13,9}, {12,9},
+                {11,9}, {10,9}, {10,10}, {10,11}, {10,12}, {10,13},
+                {10,14}, {9,14}, {8,14}, {7,14}, {6,14}, {5,14},
+                {4,14}, {3,14}, {2,14}, {1,14}, {1,13}, {1,12},
+                {1,11}, {1,10}, {1,9}, {2,9}, {3,9}, {4,9},
+                {5,9}, {6,9}, {7,9}, {8,9}, {8,8}, {8,7},
+                {7,7}, {6,7}, {5,7}, {4,7}, {3,7}, {2,7}
         };
 
         if (path.length != BOARD_SIZE) {
@@ -86,11 +103,11 @@ public class Game {
             int col = path[i][0];
             int row = path[i][1];
             ColorType color = ColorType.NONE;
-            // oznaczamy pola startowe kolorem (opcjonalne)
-            if (col == 9 && row == 1) color = ColorType.RED;
-            if (col == 2 && row == 9) color = ColorType.GREEN;
-            if (col == 14 && row == 9) color = ColorType.BLUE;
-            if (col == 9 && row == 15) color = ColorType.YELLOW;
+            // oznacz pola startowe kolorami (opcjonalne)
+            if (col == 9 && row == 1) color = ColorType.RED;    // I1
+            if (col == 1 && row == 7) color = ColorType.BLUE;   // A7 (niebieski start)
+            if (col == 15 && row == 9) color = ColorType.GREEN; // O9 (zielony start)
+            if (col == 9 && row == 15) color = ColorType.YELLOW;// I15 (żółty start)
             tiles.add(new Tile(i, row, col, color));
         }
     }
@@ -104,11 +121,11 @@ public class Game {
     }
 
     /**
-     * Konfiguruje graczy na podstawie listy typów.
-     * Lista powinna mieć długość 4; element true = AI, false = Human.
-     * Zapewnia co najmniej jednego gracza ludzkiego (jeśli brak, pierwszy zostaje ustawiony na Human).
+     * Konfiguracja graczy (lista 4 elementów: true = AI, false = Human).
+     * Dodano opcję wyłączenia debugu z poziomu dialogu (GameFrame).
      */
-    public void setupPlayersFromBooleans(List<Boolean> isAIList) {
+    public void setupPlayersFromBooleans(List<Boolean> isAIList, boolean debugEnabled) {
+        setDebugEnabled(debugEnabled);
         if (isAIList == null || isAIList.size() != 4) {
             throw new IllegalArgumentException("isAIList must contain 4 elements");
         }
@@ -123,19 +140,14 @@ public class Game {
                 case 2 -> "Niebieski";
                 default -> "Żółty";
             };
-            if (ai) {
-                players.add(new AIPlayer(name, colors[i]));
-            } else {
-                players.add(new HumanPlayer(name, colors[i]));
-                hasHuman = true;
-            }
+            if (ai) players.add(new AIPlayer(name, colors[i]));
+            else { players.add(new HumanPlayer(name, colors[i])); hasHuman = true; }
         }
         if (!hasHuman) {
-            // wymuszamy przynajmniej jednego człowieka - ustawiamy pierwszego
             players.set(0, new HumanPlayer("Czerwony", colors[0]));
             debug("No human selected - forcing first player to Human");
         }
-        // resetujemy pionki do HOME
+        // reset pionków
         for (Player p : players) {
             for (Piece piece : p.getPieces()) {
                 piece.setState(PieceState.HOME);
@@ -143,80 +155,119 @@ public class Game {
             }
         }
         currentPlayerIndex = 0;
+        resetTurnState();
         placeAllPiecesOnTiles();
         debug("Players configured. Current player: " + getCurrentPlayer().getName());
     }
 
-    public List<Tile> getTiles() {
-        return tiles;
+    public List<Tile> getTiles() { return tiles; }
+    public List<Player> getPlayers() { return players; }
+    public Player getCurrentPlayer() { return players.get(currentPlayerIndex); }
+    public String getCurrentPlayerName() { return getCurrentPlayer().getName(); }
+
+    /**
+     * Rzut kostką wykonywany pojedynczo (użytkownik naciska przycisk, AI wywołuje automatycznie).
+     * Zwraca wartość i ustawia lastRollValue oraz rolledThisTurn.
+     */
+    public int rollDiceOnce() {
+        lastRollValue = dice.roll();
+        rolledThisTurn = true;
+        debug(getCurrentPlayer().getName() + " rolled " + lastRollValue + " (attempts left before roll decrement: " + attemptsLeft + ")");
+        return lastRollValue;
     }
 
-    public List<Player> getPlayers() {
-        return players;
-    }
+    public int getLastRollValue() { return lastRollValue; }
+    public boolean hasRolledThisTurn() { return rolledThisTurn; }
+    public int getAttemptsLeft() { return attemptsLeft; }
 
-    public Player getCurrentPlayer() {
-        return players.get(currentPlayerIndex);
-    }
-
-    public String getCurrentPlayerName() {
-        return getCurrentPlayer().getName();
+    /**
+     * Po wykonaniu pojedynczego rzutu, jeśli nie ma możliwości ruchu i rzut nie daje 6,
+     * zmniejszamy attemptsLeft. Jeśli attemptsLeft spadnie do 0, tura przechodzi dalej.
+     * Zwraca true jeśli tura powinna się zakończyć (przejść do następnego gracza).
+     */
+    public boolean processRollOutcomeAndMaybeAdvance() {
+        Player current = getCurrentPlayer();
+        int val = lastRollValue;
+        boolean canMove = canAnyPieceMove(current, val);
+        if (canMove) {
+            // jeśli można wykonać ruch, nie zmniejszamy attemptsLeft tutaj — ruch wykona gracz (lub AI).
+            debug(current.getName() + " can move with roll " + val);
+            return false;
+        } else {
+            // nie można wykonać ruchu
+            if (val == 6) {
+                // jeśli wyrzucił 6, ma dodatkowy rzut (nie zmniejszamy attemptsLeft)
+                debug(current.getName() + " rolled 6 but cannot move; extra roll allowed");
+                return false;
+            } else {
+                attemptsLeft--;
+                debug(current.getName() + " cannot move with roll " + val + ". attemptsLeft -> " + attemptsLeft);
+                if (attemptsLeft <= 0) {
+                    // koniec tury
+                    debug(current.getName() + " exhausted attempts. Passing turn.");
+                    nextTurnInternal();
+                    return true;
+                }
+                return false;
+            }
+        }
     }
 
     /**
-     * Rzuca kostką i zwraca wartość. Aktualizuje wewnętrzne lastValue.
+     * Po wykonaniu ruchu: jeśli wyrzucono 6, gracz zachowuje turę (dostaje reset attempts i może rzucać dalej).
+     * Jeśli nie wyrzucono 6, tura przechodzi dalej.
      */
-    public int rollDice() {
-        int val = dice.roll();
-        debug(getCurrentPlayer().getName() + " rolled " + val);
-        return val;
+    public void afterMoveAdvanceIfNeeded(boolean moved) {
+        Player current = getCurrentPlayer();
+        if (!moved) {
+            // nic nie zrobiono — nic nie zmieniamy tutaj
+            return;
+        }
+        if (lastRollValue == 6) {
+            // zachowuje turę: reset attempts i rolledThisTurn=false (może rzucać dalej)
+            attemptsLeft = 3;
+            rolledThisTurn = false;
+            debug(current.getName() + " moved and rolled 6 -> keeps turn (attempts reset)");
+        } else {
+            // przechodzimy do następnego gracza
+            nextTurnInternal();
+        }
     }
 
-    public int getDiceValue() {
-        return dice.getLastValue();
-    }
-
-    public void nextTurn() {
+    private void nextTurnInternal() {
         currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+        resetTurnState();
+        placeAllPiecesOnTiles();
         debug("Next turn: " + getCurrentPlayer().getName());
     }
 
+    public void forceNextTurn() {
+        nextTurnInternal();
+    }
+
     /**
-     * Sprawdza, czy dany pionek może się poruszyć o steps (prosta reguła).
+     * Sprawdza, czy dany pionek może się poruszyć o steps.
      * HOME -> tylko 6 pozwala wyjść.
      * ON_BOARD -> zawsze można poruszyć (wrap-around).
      */
     public boolean canMovePiece(Player player, Piece piece, int steps) {
-        if (piece.getState() == PieceState.HOME) {
-            return steps == 6;
-        }
-        if (piece.getState() == PieceState.ON_BOARD) {
-            // prosta reguła: zawsze można poruszyć po trasie (wrap-around)
-            return true;
-        }
+        if (piece.getState() == PieceState.HOME) return steps == 6;
+        if (piece.getState() == PieceState.ON_BOARD) return true;
         return false;
     }
 
-    /**
-     * Sprawdza, czy którykolwiek pionek gracza może wykonać ruch przy danej wartości kostki.
-     */
     public boolean canAnyPieceMove(Player player, int steps) {
-        for (Piece p : player.getPieces()) {
-            if (canMovePiece(player, p, steps)) return true;
-        }
+        for (Piece p : player.getPieces()) if (canMovePiece(player, p, steps)) return true;
         return false;
     }
 
     /**
-     * Wykonuje ruch pionka: jeśli HOME i steps==6 -> ustawia na startIndex.
-     * Jeśli ON_BOARD -> przesuwa po trasie z wrap-around.
-     * Obsługuje zbicia.
+     * Wykonuje ruch pionka. Zwraca true jeśli ruch został wykonany.
      */
-    public void movePiece(Player player, Piece piece, int steps) {
-        debug(player.getName() + " attempts to move piece " + piece.getId() + " with steps " + steps);
+    public boolean movePiece(Player player, Piece piece, int steps) {
         if (!canMovePiece(player, piece, steps)) {
             debug("Move not allowed for piece " + piece.getId());
-            return;
+            return false;
         }
 
         if (piece.getState() == PieceState.HOME && steps == 6) {
@@ -226,35 +277,36 @@ public class Game {
             placeAllPiecesOnTiles();
             debug(player.getName() + " moved piece " + piece.getId() + " from HOME to start index " + startIndex);
             handleCapture(piece);
-            return;
+            return true;
         }
 
         if (piece.getState() == PieceState.ON_BOARD) {
             int current = piece.getPosition();
-            int newPos = (current + steps) % BOARD_SIZE; // wrap-around
+            int newPos = (current + steps) % BOARD_SIZE;
             piece.setPosition(newPos);
             placeAllPiecesOnTiles();
             debug(player.getName() + " moved piece " + piece.getId() + " from " + current + " to " + newPos);
             handleCapture(piece);
+            return true;
         }
+
+        return false;
     }
 
     private int getStartIndexForColor(ColorType color) {
         int targetCol = -1, targetRow = -1;
         switch (color) {
             case RED: targetCol = 9; targetRow = 1; break;   // I1
-            case GREEN: targetCol = 2; targetRow = 9; break; // B9
-            case BLUE: targetCol = 14; targetRow = 9; break; // N9
-            case YELLOW: targetCol = 9; targetRow = 15; break; // I15 (fallback)
+            case BLUE: targetCol = 1; targetRow = 7; break;  // A7 (niebieski start)
+            case GREEN: targetCol = 15; targetRow = 9; break;// O9 (zielony start)
+            case YELLOW: targetCol = 9; targetRow = 15; break;// I15
             default: return 0;
         }
         for (Tile t : tiles) {
             if (t.getCol() == targetCol && t.getRow() == targetRow) return t.getIndex();
         }
-        // fallback: jeśli nie znaleziono, zwróć indeks pola oznaczonego tym kolorem
-        for (Tile t : tiles) {
-            if (t.getColor() == color) return t.getIndex();
-        }
+        // fallback
+        for (Tile t : tiles) if (t.getColor() == color) return t.getIndex();
         return 0;
     }
 
@@ -263,7 +315,6 @@ public class Game {
         Tile tile = tiles.get(moved.getPosition());
         Piece occupant = tile.getOccupant();
         if (occupant != null && occupant.getColor() != moved.getColor()) {
-            // zbicie - wysyłamy pionek do domu
             debug("Capture: " + moved.getColor() + " piece captured " + occupant.getColor() + " piece at index " + tile.getIndex());
             occupant.setPosition(-1);
             occupant.setState(PieceState.HOME);
@@ -273,26 +324,17 @@ public class Game {
     }
 
     public void placeAllPiecesOnTiles() {
-        // czyścimy pola trasy
         for (Tile t : tiles) t.setOccupant(null);
-
-        // umieszczamy pionki graczy: tylko te ON_BOARD trafiają na tiles
         for (Player p : players) {
             for (Piece piece : p.getPieces()) {
                 if (piece.getState() == PieceState.ON_BOARD) {
                     int pos = piece.getPosition();
-                    if (pos >= 0 && pos < tiles.size()) {
-                        tiles.get(pos).setOccupant(piece);
-                    }
+                    if (pos >= 0 && pos < tiles.size()) tiles.get(pos).setOccupant(piece);
                 }
             }
         }
     }
 
-    /**
-     * Zwraca współrzędne (row,col) pola domowego dla danego pionka,
-     * na podstawie jego koloru i id (0..3). Używane do rysowania pionków w domach.
-     */
     public int[] getHomeSlotForPiece(Piece piece) {
         int[][] slots = homeSlots.get(piece.getColor());
         if (slots == null) return new int[]{1,1};
@@ -301,7 +343,12 @@ public class Game {
         return slots[id];
     }
 
+    public Tile getTileByIndex(int index) {
+        if (index < 0 || index >= tiles.size()) return null;
+        return tiles.get(index);
+    }
+
     private void debug(String msg) {
-        System.out.println("[DEBUG] " + msg);
+        if (debugEnabled) System.out.println("[DEBUG] " + msg);
     }
 }

@@ -10,11 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Główne okno gry. Zawiera panel planszy, menu konfiguracji graczy i przyciski sterujące.
- * Zmieniono:
- * - usunięto prawy boczny label "Tura: ..." (zostawiony tylko dolny wskaźnik na planszy),
- * - implementacja 3 rzutów przy starcie tury (dla AI i Human),
- * - AI wykonuje automatycznie swoje tury (rzut + ruch).
+ * Okno gry: menu konfiguracji (Human/AI + debug on/off), przycisk Rzuć kostką,
+ * sekwencyjne rzuty (po jednym), AI automatycznie wykonuje swoje ruchy.
  */
 public class GameFrame extends JFrame {
     private Game game;
@@ -81,14 +78,14 @@ public class GameFrame extends JFrame {
     }
 
     private void openNewGameDialog() {
-        JPanel panel = new JPanel(new GridLayout(5, 2, 8, 8));
+        JPanel panel = new JPanel(new GridLayout(6, 2, 8, 8));
         String[] options = new String[]{"Human", "AI"};
         JComboBox<String> p1 = new JComboBox<>(options);
         JComboBox<String> p2 = new JComboBox<>(options);
         JComboBox<String> p3 = new JComboBox<>(options);
         JComboBox<String> p4 = new JComboBox<>(options);
+        JCheckBox debugBox = new JCheckBox("Włącz debug (konsola)", true);
 
-        // domyślnie: pierwszy Human, reszta AI
         p1.setSelectedIndex(0);
         p2.setSelectedIndex(1);
         p3.setSelectedIndex(1);
@@ -102,8 +99,10 @@ public class GameFrame extends JFrame {
         panel.add(p3);
         panel.add(new JLabel("Player 4 (Żółty):"));
         panel.add(p4);
+        panel.add(new JLabel("Debug:"));
+        panel.add(debugBox);
 
-        int result = JOptionPane.showConfirmDialog(this, panel, "New Game - wybierz Human/AI", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int result = JOptionPane.showConfirmDialog(this, panel, "New Game - wybierz Human/AI i debug", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
             List<Boolean> isAI = new ArrayList<>();
             isAI.add(p1.getSelectedIndex() == 1);
@@ -113,15 +112,12 @@ public class GameFrame extends JFrame {
 
             boolean anyHuman = isAI.stream().anyMatch(b -> !b);
             if (!anyHuman) {
-                int choice = JOptionPane.showConfirmDialog(this, "Nie wybrano żadnego gracza ludzkiego. Chcesz wymusić Player 1 jako Human?", "Brak gracza ludzkiego", JOptionPane.YES_NO_OPTION);
-                if (choice == JOptionPane.YES_OPTION) {
-                    isAI.set(0, false);
-                } else {
-                    isAI.set(0, false);
-                }
+                int choice = JOptionPane.showConfirmDialog(this, "Nie wybrano żadnego gracza ludzkiego. Wymusić Player 1 jako Human?", "Brak gracza ludzkiego", JOptionPane.YES_NO_OPTION);
+                if (choice == JOptionPane.YES_OPTION) isAI.set(0, false);
+                else isAI.set(0, false);
             }
 
-            game.setupPlayersFromBooleans(isAI);
+            game.setupPlayersFromBooleans(isAI, debugBox.isSelected());
             game.placeAllPiecesOnTiles();
             boardPanel.repaint();
             infoLabel.setText("Nowa gra. Tura: " + game.getCurrentPlayerName());
@@ -130,108 +126,86 @@ public class GameFrame extends JFrame {
     }
 
     /**
-     * Obsługa przycisku Rzuć kostką:
-     * - wykonujemy do 3 rzutów jeśli nie ma możliwości ruchu (np. wszystkie pionki w domu i nie wyrzucono 6),
-     * - jeśli gracz jest AI i ma możliwość ruchu, AI wykona ruch automatycznie,
-     * - jeśli gracz jest Human i ma możliwość ruchu, czekamy na kliknięcie planszy (BoardPanel obsługuje ruch).
+     * Obsługa przycisku Rzuć kostką: wykonuje pojedynczy rzut.
+     * - jeśli po rzucie można wykonać ruch, dla AI ruch wykonuje się automatycznie,
+     * - jeśli nie można i rzut != 6, attemptsLeft-- i gracz musi ponownie nacisnąć (do 3 razy),
+     * - jeśli attemptsLeft==0 -> tura przechodzi dalej.
      */
     private void handleRollButton() {
         Player current = game.getCurrentPlayer();
 
-        // wykonujemy do 3 rzutów, zatrzymujemy się gdy pojawi się ruch możliwy do wykonania
-        int maxRolls = 3;
-        boolean canMove = false;
-        int lastRoll = 0;
-        for (int attempt = 1; attempt <= maxRolls; attempt++) {
-            lastRoll = game.rollDice();
-            infoLabel.setText(current.getName() + " wyrzucił: " + lastRoll + " (próba " + attempt + "/" + maxRolls + ")");
-            boardPanel.repaint();
+        // jeśli już rzucono i nie wykonano ruchu, nadal pozwalamy na kolejny rzut (sekwencyjnie)
+        int val = game.rollDiceOnce();
+        boardPanel.repaint();
+        infoLabel.setText(current.getName() + " wyrzucił: " + val);
 
-            if (game.canAnyPieceMove(current, lastRoll)) {
-                canMove = true;
-                break;
-            } else {
-                // jeśli nie może poruszyć, kontynuujemy kolejne próby
-                try {
-                    Thread.sleep(150); // krótka pauza by UI odświeżyło kostkę
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
-
+        // sprawdź czy można wykonać ruch
+        boolean canMove = game.canAnyPieceMove(current, val);
         if (!canMove) {
-            // po 3 nieudanych rzutach tura przechodzi dalej
-            infoLabel.setText(current.getName() + " nie może wykonać ruchu po " + maxRolls + " rzutach. Przechodzimy dalej.");
-            game.nextTurn();
+            // jeśli nie można, przetwarzamy wynik (zmniejszamy attempts lub dajemy extra roll jeśli 6)
+            boolean turnEnded = game.processRollOutcomeAndMaybeAdvance();
             boardPanel.repaint();
-            // jeśli następny jest AI, uruchamiamy AI tury
-            SwingUtilities.invokeLater(this::handleAITurnsIfNeeded);
+            if (turnEnded) {
+                infoLabel.setText(current.getName() + " nie może wykonać ruchu po 3 rzutach. Przechodzimy dalej.");
+                // jeśli następny jest AI, uruchom AI
+                SwingUtilities.invokeLater(this::handleAITurnsIfNeeded);
+            } else {
+                if (val == 6) infoLabel.setText(current.getName() + " wyrzucił 6 — ma dodatkowy rzut.");
+                else infoLabel.setText(current.getName() + " nie może wykonać ruchu. Pozostało prób: " + game.getAttemptsLeft());
+            }
             return;
         }
 
         // jeśli można wykonać ruch:
         if (!(current instanceof com.chinczyk.model.HumanPlayer)) {
-            // AI: wykonaj ruch automatycznie (wybierz pierwszy możliwy pionek)
-            current.takeTurn(game, game.getDiceValue());
+            // AI: wykonaj ruch natychmiast (AI wybiera najlepszy ruch)
+            current.takeTurn(game, val);
             game.placeAllPiecesOnTiles();
             boardPanel.repaint();
-            game.nextTurn();
+            // po ruchu sprawdź czy zachowuje turę (6) czy przechodzi dalej
+            game.afterMoveAdvanceIfNeeded(true);
             infoLabel.setText(current.getName() + " (AI) wykonał ruch.");
-            // po ruchu AI sprawdź kolejne AI
+            // jeśli następny jest AI, kontynuujemy pętlę AI
             SwingUtilities.invokeLater(this::handleAITurnsIfNeeded);
         } else {
             // Human: czekamy na kliknięcie planszy, które wykona ruch (BoardPanel.handleClick)
-            infoLabel.setText(current.getName() + " może wykonać ruch. Kliknij pionek lub pole.");
+            infoLabel.setText(current.getName() + " może wykonać ruch. Kliknij pionek lub pole startowe.");
         }
     }
 
     /**
-     * Jeśli aktualny gracz jest AI, wykonaj automatycznie jego turę (rzut + ruch).
-     * Pętla wykonuje kolejne tury AI aż do momentu gdy natrafi na gracza ludzkiego.
+     * Pętla AI: wykonuje pojedyncze rzuty i ruchy AI aż do momentu gdy natrafi na gracza ludzkiego.
+     * Każdy rzut jest pojedynczy (AI ma do 3 prób, analogicznie do gracza).
      */
     private void handleAITurnsIfNeeded() {
-        // wykonujemy AI tury w pętli, ale z krótkimi przerwami, aby UI mogło się odświeżyć
         while (!(game.getCurrentPlayer() instanceof com.chinczyk.model.HumanPlayer)) {
             Player ai = game.getCurrentPlayer();
-            // AI ma do 3 prób, analogicznie do gracza
-            int maxRolls = 3;
-            boolean canMove = false;
-            int lastRoll = 0;
-            for (int attempt = 1; attempt <= maxRolls; attempt++) {
-                lastRoll = game.rollDice();
-                infoLabel.setText(ai.getName() + " (AI) wyrzucił: " + lastRoll + " (próba " + attempt + "/" + maxRolls + ")");
+            // AI wykonuje pojedyncze rzuty sekwencyjnie (do 3 prób)
+            boolean moved = false;
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                int val = game.rollDiceOnce();
+                infoLabel.setText(ai.getName() + " (AI) wyrzucił: " + val + " (próba " + attempt + "/3)");
                 boardPanel.repaint();
-                if (game.canAnyPieceMove(ai, lastRoll)) {
-                    canMove = true;
+                if (game.canAnyPieceMove(ai, val)) {
+                    ai.takeTurn(game, val);
+                    game.placeAllPiecesOnTiles();
+                    boardPanel.repaint();
+                    moved = true;
+                    game.afterMoveAdvanceIfNeeded(true);
                     break;
                 } else {
-                    try {
-                        Thread.sleep(150);
-                    } catch (InterruptedException ex) {
-                        Thread.currentThread().interrupt();
-                    }
+                    boolean ended = game.processRollOutcomeAndMaybeAdvance();
+                    boardPanel.repaint();
+                    if (ended) break;
                 }
+                try { Thread.sleep(200); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
             }
-
-            if (!canMove) {
-                infoLabel.setText(ai.getName() + " (AI) nie może wykonać ruchu po " + maxRolls + " rzutach.");
-                game.nextTurn();
-                boardPanel.repaint();
-                continue; // sprawdź następnego gracza (może też być AI)
+            if (!moved) {
+                // jeśli AI nie wykonał ruchu po 3 próbach, nextTurn już wykonane w processRollOutcomeAndMaybeAdvance
+                continue;
             }
-
-            // AI wykonuje ruch (AIPlayer.takeTurn wybiera pierwszy możliwy pionek)
-            ai.takeTurn(game, game.getDiceValue());
-            game.placeAllPiecesOnTiles();
-            boardPanel.repaint();
-            game.nextTurn();
-
-            try {
-                Thread.sleep(250); // krótka pauza między AI ruchami
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-            }
+            // jeśli AI wykonał ruch i zachował turę (6), pętla będzie kontynuowana; w przeciwnym razie nextTurn już wykonane
+            try { Thread.sleep(250); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
         }
     }
 }
