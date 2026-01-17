@@ -1,7 +1,10 @@
+import board.Board;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import javax.swing.*;
+import model.Piece;
+import model.PieceColor;
 
 public class Panel extends JPanel implements MouseListener {
 

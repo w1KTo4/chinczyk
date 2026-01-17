@@ -1,3 +1,4 @@
+package model;
 public class Piece {
     private PieceColor color;
     private int counter; // numer pola na torze

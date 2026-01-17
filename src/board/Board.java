@@ -1,4 +1,13 @@
+package board;
 import java.awt.*;
+
+import model.Piece;
+import model.PieceColor;
+import route.BlueRouteCalculator;
+import route.GreenRouteCalculator;
+import route.RedRouteCalculator;
+import route.RouteCalculator;
+import route.YellowRouteCalculator;
 
 public class Board {
     private final int size;

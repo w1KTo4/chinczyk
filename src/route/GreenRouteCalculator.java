@@ -1,3 +1,4 @@
+package route;
 import java.awt.Point;
 
 public class GreenRouteCalculator extends RouteCalculator {
