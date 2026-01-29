@@ -12,7 +12,7 @@ public class Panel extends JPanel implements MouseListener {
     private final int ILOSC_POL = 15;
 
     private Board board;
-    private int liczba = 0; // wynik kostki
+    private int liczba = 0;
 
     public Panel() {
         addMouseListener(this);
@@ -34,30 +34,26 @@ public class Panel extends JPanel implements MouseListener {
         if (kolumn < 0 || kolumn >= ILOSC_POL || wiersz < 0 || wiersz >= ILOSC_POL) {
             return;
         }
-
-        // 1) klik środek -> losuj kostkę
+  
         if (wiersz == 7 && kolumn == 7) {
-            liczba = (int) (Math.random() * 6) + 1; // 1..6
+            liczba = (int) (Math.random() * 6) + 1; 
             repaint();
             return;
         }
 
-        // 2) jeśli na polu nie ma pionka -> nic
         Piece p = board.getPieceAt(wiersz, kolumn);
         if (p == null) return;
 
         PieceColor c = p.getColor();
         if (c == null) return;
 
-        // 3) PRZENIESIENIE Z BAZY NA POLE STARTOWE (robimy to NAJPIERW)
+  
         if (board.tryMoveFromBase(wiersz, kolumn)) {
             repaint();
             return;
         }
-
-        // dla pionków counter-based: oblicz nowy counter i spróbuj przesunąć
         if (c == PieceColor.GREEN || c == PieceColor.BLUE || c == PieceColor.YELLOW || c == PieceColor.RED) {
-            // jeśli czerwony musi najpierw mieć rzut
+
             if (c == PieceColor.RED && liczba <= 0) return;
 
             int oldCounter = p.getCounter();
@@ -66,11 +62,9 @@ public class Panel extends JPanel implements MouseListener {
             Point cel = board.getPositionForColorAndCounter(c, nowyCounter);
 
             if (board.isOccupied(cel.y, cel.x)) {
-                // pole zajęte -> anuluj ruch (zgodnie z oryginalną logiką)
                 return;
             }
 
-            // wykonaj ruch
             board.movePiece(wiersz, kolumn, cel.y, cel.x, nowyCounter);
             liczba = 0;
             repaint();
@@ -93,10 +87,8 @@ public class Panel extends JPanel implements MouseListener {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        // rysuj planszę (Board przygotowuje mapę kolorów)
         board.drawBoard(g, ROZMIAR_POLA);
 
-        // rysuj pionki
         for (int w = 0; w < ILOSC_POL; w++) {
             for (int k = 0; k < ILOSC_POL; k++) {
                 Piece piece = board.getPieceAt(w, k);
@@ -130,4 +122,14 @@ public class Panel extends JPanel implements MouseListener {
         int tekstY = y + fm.getAscent() / 2;
         g.drawString(tekst, tekstX, tekstY);
     }
+
+public void restartGame() {
+
+    if (this.board != null) {
+        this.board.initializeStartPositions();
+    }
+
+    this.liczba = 0;
+    repaint();
+}
 }

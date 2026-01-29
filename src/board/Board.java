@@ -1,6 +1,5 @@
 package board;
 import java.awt.*;
-
 import model.Piece;
 import model.PieceColor;
 import route.BlueRouteCalculator;
@@ -14,7 +13,6 @@ public class Board {
     private final Color[][] mapa;
     private final Piece[][] pieces;
 
-    // Route calculators (polimorfizm + abstrakcja)
     private final RouteCalculator redRoute = new RedRouteCalculator();
     private final RouteCalculator greenRoute = new GreenRouteCalculator();
     private final RouteCalculator blueRoute = new BlueRouteCalculator();
@@ -27,38 +25,39 @@ public class Board {
     }
 
     public void initializeStartPositions() {
-        // ustaw puste pola
-        for (int i = 0; i < size; i++)
-            for (int j = 0; j < size; j++)
-                mapa[i][j] = null;
 
-        // przygotuj początkowe pozycje pionków (dokładnie jak w oryginalnym kodzie)
-        int[][] pozycje = {
-            {2, 2}, {3, 2}, {2, 3}, {3, 3},
-            {11, 2}, {11, 3}, {12, 2}, {12, 3},
-            {2, 11}, {3, 11}, {2, 12}, {3, 12},
-            {11, 11}, {12, 11}, {11, 12}, {12, 12}
-        };
-
-        int counter = 0;
-        for (int[] p : pozycje) {
-            int col = p[0], row = p[1];
-            Piece piece;
-            if (counter >= 0 && counter < 4) {
-                piece = new Piece(PieceColor.RED, 0);
-            } else if (counter >= 4 && counter < 8) {
-                piece = new Piece(PieceColor.GREEN, 0);
-            } else if (counter >= 8 && counter < 12) {
-                piece = new Piece(PieceColor.BLUE, 0);
-            } else {
-                piece = new Piece(PieceColor.YELLOW, 0);
-            }
-            setPieceAt(row, col, piece);
-            counter++;
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+              pieces[i][j] = null; 
+            
         }
     }
 
-    // Encapsulation: dostęp przez metody
+
+    int[][] pozycje = {
+        {2, 2}, {3, 2}, {2, 3}, {3, 3},       // czerwone
+        {11, 2}, {11, 3}, {12, 2}, {12, 3},   // zielone
+        {2, 11}, {3, 11}, {2, 12}, {3, 12},   // niebieskie
+        {11, 11}, {12, 11}, {11, 12}, {12, 12} // żółte
+    };
+
+    for (int counter = 0; counter < pozycje.length; counter++) {
+        int row = pozycje[counter][1];
+        int col = pozycje[counter][0];
+        PieceColor color;
+
+        if (counter < 4) color = PieceColor.RED;
+        else if (counter < 8) color = PieceColor.GREEN;
+        else if (counter < 12) color = PieceColor.BLUE;
+        else color = PieceColor.YELLOW;
+
+        Piece piece = new Piece(color, 0); 
+        setPieceAt(row, col, piece);
+    }
+}
+
+
+
     public Piece getPieceAt(int row, int col) {
         if (valid(row, col)) return pieces[row][col];
         return null;
@@ -81,7 +80,6 @@ public class Board {
         return r >= 0 && r < size && c >= 0 && c < size;
     }
 
-    // Zwraca true jeśli przeniesiono pionka z bazy na pole startowe
     public boolean tryMoveFromBase(int row, int col) {
         Piece p = getPieceAt(row, col);
         if (p == null) return false;
@@ -134,7 +132,7 @@ public class Board {
         return false;
     }
 
-    // Przemieszcza pionek i ustawia counter (używane z Panel)
+
     public void movePiece(int fromRow, int fromCol, int toRow, int toCol, int newCounter) {
         Piece p = getPieceAt(fromRow, fromCol);
         if (p == null) return;
@@ -143,7 +141,7 @@ public class Board {
         setPieceAt(toRow, toCol, p);
     }
 
-    // Zwraca punkt (kolumna,wiersz) dla danej barwy i countera
+
     public Point getPositionForColorAndCounter(PieceColor color, int counter) {
         Point p;
         switch (color) {
@@ -162,13 +160,13 @@ public class Board {
             default:
                 p = redRoute.getPosition(counter);
         }
-        // Zabezpieczenia (powrót w ramach planszy)
+
         int k = Math.max(0, Math.min(size - 1, p.x));
         int w = Math.max(0, Math.min(size - 1, p.y));
         return new Point(k, w);
     }
 
-    // Rysowanie planszy (kopiujemy logikę ustawiania pól kolorowych i rysowania)
+
     public void drawBoard(Graphics g, int ROZMIAR_POLA) {
         // 0) wyczyść mapę
         for (int w = 0; w < size; w++) {
@@ -176,8 +174,6 @@ public class Board {
                 mapa[w][k] = null;
             }
         }
-
-        // 1) ustawiamy pola toru w tablicy mapa (logika oryginalna)
         for (int i = 1; i < 8; i++) {
             mapa[i][7] = Color.RED;
             mapa[i-1][6] = Color.GRAY;
@@ -203,9 +199,9 @@ public class Board {
         mapa[7][0] = Color.GRAY;
         mapa[7][14] = Color.GRAY;
         mapa[14][7] = Color.GRAY;
-        mapa[7][7] = Color.WHITE; // pole środkowe
+        mapa[7][7] = Color.WHITE; 
 
-        // 2) tło pól (siatka)
+
         for (int w = 0; w < size; w++) {
             for (int k = 0; k < size; k++) {
                 g.setColor(Color.LIGHT_GRAY);
@@ -213,7 +209,6 @@ public class Board {
             }
         }
 
-        // 3) rysuj pola kolorowe z mapy (tor)
         for (int w = 0; w < size; w++) {
             for (int k = 0; k < size; k++) {
                 if (mapa[w][k] != null) {
@@ -223,20 +218,19 @@ public class Board {
             }
         }
 
-        // 4) duże pola startowe (bazy) narysuj na wierzchu
+
         g.setColor(Color.RED);
-        g.fillRect(ROZMIAR_POLA, ROZMIAR_POLA, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4);         // lewy górny
+        g.fillRect(ROZMIAR_POLA, ROZMIAR_POLA, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4);    
 
         g.setColor(Color.GREEN);
-        g.fillRect(ROZMIAR_POLA * 10, ROZMIAR_POLA, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4);    // prawy górny
+        g.fillRect(ROZMIAR_POLA * 10, ROZMIAR_POLA, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4); 
 
         g.setColor(Color.YELLOW);
-        g.fillRect(ROZMIAR_POLA * 10, ROZMIAR_POLA * 10, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4); // prawy dolny
+        g.fillRect(ROZMIAR_POLA * 10, ROZMIAR_POLA * 10, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4); 
 
         g.setColor(Color.BLUE);
-        g.fillRect(ROZMIAR_POLA, ROZMIAR_POLA * 10, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4);    // lewy dolny
-
-        // 5) kontury pól na sam koniec
+        g.fillRect(ROZMIAR_POLA, ROZMIAR_POLA * 10, ROZMIAR_POLA * 4, ROZMIAR_POLA * 4);   
+        
         g.setColor(Color.BLACK);
         for (int w = 0; w < size; w++) {
             for (int k = 0; k < size; k++) {
