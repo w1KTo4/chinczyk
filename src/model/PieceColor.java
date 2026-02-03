@@ -7,13 +7,13 @@ public enum PieceColor {
     BLUE(new Color(0,0,153)),
     YELLOW(new Color(204,204,0));
 
-    private final Color awtColor;
+    private final Color Color;
 
     PieceColor(Color awtColor) {
-        this.awtColor = awtColor;
+        this.Color = awtColor;
     }
 
     public Color getAwtColor() {
-        return awtColor;
+        return Color;
     }
 }

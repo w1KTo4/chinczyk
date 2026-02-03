@@ -6,7 +6,7 @@ import board.Board;
 import model.Piece;
 import model.PieceColor;
 public class Panel extends JPanel implements MouseListener {
-    private final int ROZMIAR_POLA = 55;
+    private final int ROZMIAR_POLA = 40;
     private final int ILOSC_POL = 15;
     private Board board;
     private int liczba = 0;
